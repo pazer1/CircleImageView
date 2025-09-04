@@ -1,0 +1,232 @@
+---
+- name: Validate cluster against expected Kubespray vars
+  hosts: localhost
+  gather_facts: false
+  vars:
+    expected_vars_path: "{{ expected_vars_path | default('inventory/mycluster/group_vars/k8s-cluster/k8s-cluster.yml') }}"
+    kubeconfig: "{{ kubeconfig | default(lookup('env','KUBECONFIG') | default('~/.kube/config', true)) }}"
+    validate_collect_all: true
+    report_dir: "{{ report_dir | default('./validate-reports') }}"
+  collections:
+    - kubernetes.core
+
+  pre_tasks:
+    - name: Ensure report dir exists
+      ansible.builtin.file:
+        path: "{{ report_dir }}"
+        state: directory
+        mode: "0755"
+
+  roles:
+    - role: cluster_validate
+
+
+---
+kube_ns_system: kube-system
+expected: {}
+errors: []
+validate_collect_all: true
+kubeconfig: "~/.kube/config"
+report_dir: "./validate-reports"
+
+---
+- include_tasks: preflight.yml
+- include_tasks: controlplane.yml
+- include_tasks: scheduler.yml
+- include_tasks: kubelet.yml
+- include_tasks: etcd.yml
+- include_tasks: cilium.yml
+- include_tasks: dns.yml
+- include_tasks: network.yml
+- include_tasks: containerd.yml
+- include_tasks: finalize.yml
+
+---
+- name: Load expected vars (raw)
+  vars:
+    _raw: "{{ lookup('file', expected_vars_path) }}"
+  ansible.builtin.set_fact:
+    expected_raw: "{{ _raw }}"
+
+- name: Parse expected vars YAML
+  block:
+    - ansible.builtin.set_fact:
+        expected: "{{ expected_raw | from_yaml }}"
+  rescue:
+    - ansible.builtin.fail:
+        msg: "YAML 파싱 실패: {{ expected_vars_path }}. 따옴표/중복키/비표준 공백(특수스페이스) 확인 필요"
+
+- name: Basic sanity checks on CIDRs
+  vars:
+    svc_cidr: "{{ expected.kube_service_addresses }}"
+    pod_cidr: "{{ (expected.kube_pods_subnet | string).replace('\"','').replace(\"'\",'') }}"
+  block:
+    - name: Assert service CIDR looks valid
+      ansible.builtin.assert:
+        that:
+          - svc_cidr is ipaddr
+        success_msg: "kube_service_addresses CIDR OK: {{ svc_cidr }}"
+        fail_msg: "kube_service_addresses CIDR invalid: {{ svc_cidr }}"
+      register: _svc
+      failed_when: (not validate_collect_all) and (not _svc.assertion)
+
+    - name: Assert pod CIDR looks valid
+      ansible.builtin.assert:
+        that:
+          - pod_cidr is ipaddr
+        success_msg: "kube_pods_subnet CIDR OK: {{ pod_cidr }}"
+        fail_msg: "kube_pods_subnet CIDR invalid: {{ pod_cidr }} (따옴표 이중중첩 등 확인)"
+      register: _pod
+      failed_when: (not validate_collect_all) and (not _pod.assertion)
+
+  always:
+    - name: Collect errors (preflight)
+      when: validate_collect_all
+      ansible.builtin.set_fact:
+        errors: >-
+          {{ errors
+             + ([ "Invalid service CIDR: " ~ expected.kube_service_addresses ] if (_svc is defined and not _svc.assertion) else [])
+             + ([ "Invalid pod CIDR: " ~ ((expected.kube_pods_subnet | string)) ] if (_pod is defined and not _pod.assertion) else [])
+          }}
+
+- name: Show cluster name / version (from expected)
+  ansible.builtin.debug:
+    msg:
+      - "cluster_name(expected): {{ expected.cluster_name | default('N/A') }}"
+      - "kube_version(expected): {{ expected.kube_version | default('N/A') }}"
+
+- name: Set common facts
+  vars:
+    pod_cidr_clean: "{{ (expected.kube_pods_subnet | string).replace('\"','').replace(\"'\",'') }}"
+  ansible.builtin.set_fact:
+    expected_service_cidr: "{{ expected.kube_service_addresses }}"
+    expected_pod_cidr: "{{ pod_cidr_clean }}"
+    expected_node_prefix: "{{ expected.kube_network_node_prefix | int }}"
+
+---
+- name: Get kube-apiserver pods
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ kube_ns_system }}"
+    label_selectors:
+      - component=kube-apiserver
+  register: apiservers
+  vars:
+    kubeconfig: "{{ kubeconfig }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Validate apiserver exists
+  ansible.builtin.assert:
+    that: apiservers.resources | length > 0
+    fail_msg: "kube-apiserver pods not found"
+  register: _api_exist
+  failed_when: (not validate_collect_all) and (not _api_exist.assertion)
+
+- name: Check apiserver flags and resources
+  vars:
+    expect_inflight: "{{ (expected.kube_kubeadm_apiserver_extra_args['max-requests-inflight'] |
+                          default(expected.kube_kubeadm_apiserver_extra_args.max_requests_inflight)) | default(400) }}"
+    expect_mut_inflight: "{{ (expected.kube_kubeadm_apiserver_extra_args['max-mutating-requests-inflight'] |
+                             default(expected.kube_kubeadm_apiserver_extra_args.max_mutating_requests_inflight)) | default(800) }}"
+    expect_req_mem: "{{ expected.kubeadm_patches[0].patch | default('') | regex_search('requests:\\s*\\n\\s*memory:\\s*\"([^\"]+)\"', '\\1') | default('20Gi') }}"
+    expect_lim_cpu: "{{ expected.kubeadm_patches[0].patch | default('') | regex_search('limits:\\s*\\n\\s*cpu:\\s*\"([^\"]+)\"', '\\1') | default('16') }}"
+    expect_lim_mem: "{{ expected.kubeadm_patches[0].patch | default('') | regex_search('limits:\\s*\\n\\s*memory:\\s*\"([^\"]+)\"', '\\1') | default('20Gi') }}"
+  loop: "{{ apiservers.resources | default([]) }}"
+  loop_control:
+    loop_var: api_pod
+    label: "{{ api_pod.metadata.name | default('apiserver') }}"
+  vars:
+    cmdline: "{{ (api_pod.spec.containers[0].command | default([])) | join(' ') }}"
+    res: "{{ api_pod.spec.containers[0].resources | default({}) }}"
+    req_mem: "{{ res.requests.memory | default('') }}"
+    lim_cpu: "{{ res.limits.cpu | default('') }}"
+    lim_mem: "{{ res.limits.memory | default('') }}"
+  block:
+    - name: Assert apiserver inflight flags present
+      ansible.builtin.assert:
+        that:
+          - "'--service-cluster-ip-range=' in cmdline"
+          - "'--max-requests-inflight={{ expect_inflight }}' in cmdline"
+          - "'--max-mutating-requests-inflight={{ expect_mut_inflight }}' in cmdline"
+        fail_msg: "apiserver flags mismatch in {{ api_pod.metadata.name }}"
+      register: _api_flags
+      failed_when: (not validate_collect_all) and (not _api_flags.assertion)
+
+    - name: Assert apiserver resources from patch
+      ansible.builtin.assert:
+        that:
+          - req_mem == expect_req_mem
+          - lim_cpu == expect_lim_cpu
+          - lim_mem == expect_lim_mem
+        fail_msg: "apiserver resources mismatch in {{ api_pod.metadata.name }} (got req_mem={{req_mem}}, lim_cpu={{lim_cpu}}, lim_mem={{lim_mem}})"
+      register: _api_res
+      failed_when: (not validate_collect_all) and (not _api_res.assertion)
+
+  always:
+    - name: Collect errors (apiserver)
+      when: validate_collect_all
+      ansible.builtin.set_fact:
+        errors: >-
+          {{ errors
+             + ([ "apiserver flags mismatch: " ~ api_pod.metadata.name ] if (_api_flags is defined and not _api_flags.assertion) else [])
+             + ([ "apiserver resources mismatch: " ~ api_pod.metadata.name ] if (_api_res is defined and not _api_res.assertion) else [])
+          }}
+
+- name: Get controller-manager and verify qps/burst & concur
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ kube_ns_system }}"
+    label_selectors: ["component=kube-controller-manager"]
+  register: kcm
+
+- name: Assert controller-manager flags
+  vars:
+    cmd: "{{ (item.spec.containers[0].command | default([])) | join(' ') }}"
+    expect_qps: "{{ expected.kube_kubeadm_controller_extra_args['kube-api-qps'] | default(expected.kube_kubeadm_controller_extra_args.kube_api_qps) | default(150) }}"
+    expect_burst: "{{ expected.kube_kubeadm_controller_extra_args['kube-api-burst'] | default(expected.kube_kubeadm_controller_extra_args.kube_api_burst) | default(300) }}"
+    expect_gc: "{{ expected.kube_kubeadm_controller_extra_args['concurrent-gc-syncs'] | default(200) }}"
+  loop: "{{ kcm.resources | default([]) }}"
+  ansible.builtin.assert:
+    that:
+      - "'--kube-api-qps={{ expect_qps }}' in cmd"
+      - "'--kube-api-burst={{ expect_burst }}' in cmd"
+      - "'--concurrent-gc-syncs={{ expect_gc }}' in cmd"
+    fail_msg: "controller-manager flags mismatch in {{ item.metadata.name }}"
+  register: _kcm_assert
+  failed_when: (not validate_collect_all) and (not _kcm_assert.results | map(attribute='assertion') | min)
+
+- name: Collect errors (kcm)
+  when: validate_collect_all
+  ansible.builtin.set_fact:
+    errors: "{{ errors + (_kcm_assert.results | selectattr('assertion','equalto',false) | map(attribute='item.metadata.name') | map('regex_replace','(.*)','kcm flags mismatch: \\1') | list) }}"
+
+---
+- name: Get scheduler pods
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ kube_ns_system }}"
+    label_selectors: ["component=kube-scheduler"]
+  register: sched
+
+- name: Assert scheduler qps/burst
+  vars:
+    cmd: "{{ (item.spec.containers[0].command | default([])) | join(' ') }}"
+    expect_qps: "{{ expected.kube_scheduler_client_conn_extra_opts.qps | default(150) }}"
+    expect_burst: "{{ expected.kube_scheduler_client_conn_extra_opts.burst | default(300) }}"
+  loop: "{{ sched.resources | default([]) }}"
+  ansible.builtin.assert:
+    that:
+      - "'--kube-api-qps={{ expect_qps }}' in cmd"
+      - "'--kube-api-burst={{ expect_burst }}' in cmd"
+    fail_msg: "scheduler flags mismatch in {{ item.metadata.name }}"
+  register: _sch_assert
+  failed_when: (not validate_collect_all) and (not _sch_assert.results | map(attribute='assertion') | min)
+
+- name: Collect errors (scheduler)
+  when: validate_collect_all
+  ansible.builtin.set_fact:
+    errors: "{{ errors + (_sch_assert.results | selectattr('assertion','equalto',false) | map(attribute='item.metadata.name') | map('regex_replace','(.*)','scheduler flags mismatch: \\1') | list) }}"

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 39,
+  "title": "Bond NIC Deep-Dive (iperf bottleneck)",
+  "timezone": "browser",
+  "tags": ["network","bond","ethtool","iperf"],
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Bond Throughput (TX/RX, bps)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "bps"}},
+      "targets": [
+        {
+          "expr": "sum by (device) (rate(node_network_transmit_bytes_total{device=~\"bond0|bond1\"}[1m])) * 8",
+          "legendFormat": "{{device}}-tx"
+        },
+        {
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device=~\"bond0|bond1\"}[1m])) * 8",
+          "legendFormat": "{{device}}-rx"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-Slave NIC Throughput",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "bps"}},
+      "targets": [
+        {
+          "expr": "rate(node_network_transmit_bytes_total{device=~\"eno.*|ens.*\"}[1m]) * 8",
+          "legendFormat": "{{device}}-tx"
+        },
+        {
+          "expr": "rate(node_network_receive_bytes_total{device=~\"eno.*|ens.*\"}[1m]) * 8",
+          "legendFormat": "{{device}}-rx"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Driver-level Errors (ethtool)",
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "rate(node_ethtool_rx_dropped{device=~\"bond0|bond1\"}[1m])",
+          "legendFormat": "{{device}}-rx_dropped"
+        },
+        {
+          "expr": "rate(node_ethtool_rx_no_buffer{device=~\"bond0|bond1\"}[1m])",
+          "legendFormat": "{{device}}-rx_no_buf"
+        },
+        {
+          "expr": "rate(node_ethtool_tx_errors{device=~\"bond0|bond1\"}[1m])",
+          "legendFormat": "{{device}}-tx_err"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Bond0 Slaves Active/Total",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 23},
+      "targets": [
+        {"expr": "node_bonding_active{master=\"bond0\"}", "legendFormat": "active"},
+        {"expr": "node_bonding_slaves{master=\"bond0\"}", "legendFormat": "slaves"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Bond1 Slaves Active/Total",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 23},
+      "targets": [
+        {"expr": "node_bonding_active{master=\"bond1\"}", "legendFormat": "active"},
+        {"expr": "node_bonding_slaves{master=\"bond1\"}", "legendFormat": "slaves"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Softnet Drops",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 27},
+      "targets": [
+        {"expr": "rate(node_softnet_dropped[1m])", "legendFormat": "{{instance}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "SoftIRQ Load (NET_RX / NET_TX)",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 27},
+      "targets": [
+        {"expr": "sum by (cpu) (rate(node_softirqs_total{softirq=\"NET_RX\"}[1m]))", "legendFormat": "rx cpu {{cpu}}"},
+        {"expr": "sum by (cpu) (rate(node_softirqs_total{softirq=\"NET_TX\"}[1m]))", "legendFormat": "tx cpu {{cpu}}"}
+      ]
+    }
+  ]
+}

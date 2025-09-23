@@ -1,1 +1,49 @@
-kube-apiserver.yaml--max-mutating-requests-inflight=2000 --max-requests-inflight=4000--delete-collection-workers=50kube-controller-manager.yaml- --kube-api-qps=1000- --kube-api-burst=1000- --concurrent-deployment-syncs=50- --concurrent-namespace-syncs=50- --concurrent-service-syncs=50- --concurrent-gc-syncs=200- --concurrent-endpoint-syncs=50kube-scheduler.yaml--kube-api-qps=5000--kube-api-burst=5000kubelet-config.yamlkubeAPIQPS: 2000kubeAPIBurst: 2000
+[root@icdlhk8ss3test01 ~]# ausearch -k kubeipt -i | tail -n 200
+----
+type=PROCTITLE msg=audit(09/22/2025 17:21:51.163:337243) : proctitle=auditctl -w /usr/sbin/iptables -p x -k kubeipt
+type=PATH msg=audit(09/22/2025 17:21:51.163:337243) : item=0 name=/usr/sbin/ inode=352321664 dev=fd:00 mode=dir,555 ouid=root ogid=root rdev=00:00 obj=unlabeled nametype=PARENT cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(09/22/2025 17:21:51.163:337243) : cwd=/usr/bin
+type=SOCKADDR msg=audit(09/22/2025 17:21:51.163:337243) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/22/2025 17:21:51.163:337243) : arch=x86_64 syscall=sendto success=yes exit=1084 a0=0x4 a1=0x7ffd0c9b8900 a2=0x43c a3=0x0 items=1 ppid=1883496 pid=1915149 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts7 ses=2091 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/22/2025 17:21:51.163:337243) : auid=root ses=2091 subj=kernel op=add_rule key=kubeipt list=exit res=yes
+----
+type=PROCTITLE msg=audit(09/22/2025 17:25:01.564:337252) : proctitle=auditctl -w /usr/sbin/iptables-restore -p x -k kubeipt
+type=PATH msg=audit(09/22/2025 17:25:01.564:337252) : item=0 name=/usr/sbin/ inode=352321664 dev=fd:00 mode=dir,555 ouid=root ogid=root rdev=00:00 obj=unlabeled nametype=PARENT cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(09/22/2025 17:25:01.564:337252) : cwd=/usr/bin
+type=SOCKADDR msg=audit(09/22/2025 17:25:01.564:337252) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/22/2025 17:25:01.564:337252) : arch=x86_64 syscall=sendto success=yes exit=1092 a0=0x4 a1=0x7fffbb4bc690 a2=0x444 a3=0x0 items=1 ppid=1883496 pid=1915981 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts7 ses=2091 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/22/2025 17:25:01.564:337252) : auid=root ses=2091 subj=kernel op=add_rule key=kubeipt list=exit res=yes
+----
+type=PROCTITLE msg=audit(09/22/2025 17:25:33.735:337292) : proctitle=auditctl -w /usr/sbin/xtables-legacy-multi -p x -k kubeipt
+type=PATH msg=audit(09/22/2025 17:25:33.735:337292) : item=0 name=/usr/sbin/ inode=352321664 dev=fd:00 mode=dir,555 ouid=root ogid=root rdev=00:00 obj=unlabeled nametype=PARENT cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(09/22/2025 17:25:33.735:337292) : cwd=/usr/bin
+type=SOCKADDR msg=audit(09/22/2025 17:25:33.735:337292) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/22/2025 17:25:33.735:337292) : arch=x86_64 syscall=sendto success=yes exit=1096 a0=0x4 a1=0x7ffc78ee69b0 a2=0x448 a3=0x0 items=1 ppid=1883496 pid=1916722 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts7 ses=2091 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/22/2025 17:25:33.735:337292) : auid=root ses=2091 subj=kernel op=add_rule key=kubeipt list=exit res=yes
+----
+type=PROCTITLE msg=audit(09/22/2025 17:25:58.256:337311) : proctitle=auditctl -w /usr/sbin/nft -p x -k kubeipt
+type=PATH msg=audit(09/22/2025 17:25:58.256:337311) : item=0 name=/usr/sbin/ inode=352321664 dev=fd:00 mode=dir,555 ouid=root ogid=root rdev=00:00 obj=unlabeled nametype=PARENT cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(09/22/2025 17:25:58.256:337311) : cwd=/usr/bin
+type=SOCKADDR msg=audit(09/22/2025 17:25:58.256:337311) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/22/2025 17:25:58.256:337311) : arch=x86_64 syscall=sendto success=yes exit=1076 a0=0x4 a1=0x7ffe1e1ae150 a2=0x434 a3=0x0 items=1 ppid=1883496 pid=1917137 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts7 ses=2091 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/22/2025 17:25:58.256:337311) : auid=root ses=2091 subj=kernel op=add_rule key=kubeipt list=exit res=yes
+----
+type=PROCTITLE msg=audit(09/23/2025 16:15:35.002:348622) : proctitle=auditctl -w /usr/sbin/iptables -p x -k kubeipt
+type=SOCKADDR msg=audit(09/23/2025 16:15:35.002:348622) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/23/2025 16:15:35.002:348622) : arch=x86_64 syscall=sendto success=yes exit=1084 a0=0x4 a1=0x7ffeca8b2590 a2=0x43c a3=0x0 items=0 ppid=2419832 pid=2461650 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts12 ses=2157 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/23/2025 16:15:35.002:348622) : auid=root ses=2157 subj=kernel op=add_rule key=kubeipt list=exit res=no
+----
+type=PROCTITLE msg=audit(09/23/2025 16:15:38.122:348623) : proctitle=auditctl -w /usr/sbin/iptables-restore -p x -k kubeipt
+type=SOCKADDR msg=audit(09/23/2025 16:15:38.122:348623) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/23/2025 16:15:38.122:348623) : arch=x86_64 syscall=sendto success=yes exit=1092 a0=0x4 a1=0x7fffb9523d30 a2=0x444 a3=0x0 items=0 ppid=2419832 pid=2461726 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts12 ses=2157 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/23/2025 16:15:38.122:348623) : auid=root ses=2157 subj=kernel op=add_rule key=kubeipt list=exit res=no
+----
+type=PROCTITLE msg=audit(09/23/2025 16:15:42.520:348624) : proctitle=auditctl -w /usr/sbin/nft -p x -k kubeipt
+type=SOCKADDR msg=audit(09/23/2025 16:15:42.520:348624) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/23/2025 16:15:42.520:348624) : arch=x86_64 syscall=sendto success=yes exit=1076 a0=0x4 a1=0x7ffd5ad351e0 a2=0x434 a3=0x0 items=0 ppid=2419832 pid=2461822 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts12 ses=2157 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/23/2025 16:15:42.520:348624) : auid=root ses=2157 subj=kernel op=add_rule key=kubeipt list=exit res=no
+----
+type=PROCTITLE msg=audit(09/23/2025 16:15:45.164:348625) : proctitle=auditctl -w /usr/sbin/xtables-legacy-multi -p x -k kubeipt
+type=SOCKADDR msg=audit(09/23/2025 16:15:45.164:348625) : saddr={ saddr_fam=netlink nlnk-fam=16 nlnk-pid=0 }
+type=SYSCALL msg=audit(09/23/2025 16:15:45.164:348625) : arch=x86_64 syscall=sendto success=yes exit=1096 a0=0x4 a1=0x7fffd24e1300 a2=0x448 a3=0x0 items=0 ppid=2419832 pid=2461932 auid=root uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts12 ses=2157 comm=auditctl exe=/usr/sbin/auditctl subj=kernel key=(null)
+type=CONFIG_CHANGE msg=audit(09/23/2025 16:15:45.164:348625) : auid=root ses=2157 subj=kernel op=add_rule key=kubeipt list=exit res=no

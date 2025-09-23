@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# setup-kubeipt-audit.sh
+# Purpose: add comprehensive audit rules to capture execve of iptables/nft related binaries,
+#          persist them under /etc/audit/rules.d/90-kubeipt.rules and load the rules.
+# Usage: sudo bash setup-kubeipt-audit.sh
+# Provides: install, summary, remove modes
+set -euo pipefail
+
+RULEFILE="/etc/audit/rules.d/90-kubeipt.rules"
+BACKUP_DIR="/var/tmp/kubeipt-audit-backups"
+KEY="kubeipt"
+
+# list of candidate executables to watch (both /usr/sbin and /sbin variants)
+read -r -d '' EXES <<'EOF'
+/usr/sbin/iptables
+/usr/sbin/iptables-restore
+/usr/sbin/iptables-save
+/usr/sbin/ip6tables
+/usr/sbin/ip6tables-restore
+/usr/sbin/ip6tables-save
+/usr/sbin/xtables-legacy-multi
+/usr/sbin/xtables-nft-multi
+/usr/sbin/iptables-nft
+/usr/sbin/iptables-legacy
+/usr/sbin/nft
+/sbin/iptables
+/sbin/iptables-restore
+/sbin/iptables-save
+/sbin/ip6tables
+/sbin/ip6tables-restore
+/sbin/ip6tables-save
+/sbin/xtables-legacy-multi
+/sbin/xtables-nft-multi
+/sbin/iptables-nft
+/sbin/iptables-legacy
+EOF
+
+ensure_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "이 스크립트는 루트로 실행해야 합니다. sudo로 다시 실행하세요."
+    exit 1
+  fi
+}
+
+check_auditd() {
+  if ! command -v auditctl >/dev/null 2>&1; then
+    echo "경고: auditctl 명령을 찾을 수 없음. auditd가 설치되어 있는지 확인하세요."
+  fi
+  if ! systemctl is-active --quiet auditd; then
+    echo "auditd가 활성화되어 있지 않습니다. 시작을 시도합니다..."
+    systemctl start auditd || {
+      echo "auditd 시작 실패. 수동으로 확인하세요."
+    }
+  fi
+}
+
+backup_rules() {
+  mkdir -p "$BACKUP_DIR"
+  TIMESTAMP="$(date +%Y%m%dT%H%M%S)"
+  if [ -f "$RULEFILE" ]; then
+    cp -a "$RULEFILE" "${BACKUP_DIR}/90-kubeipt.rules.${TIMESTAMP}.bak"
+    echo "기존 규칙 파일을 ${BACKUP_DIR}/90-kubeipt.rules.${TIMESTAMP}.bak 에 백업했습니다."
+  fi
+  # backup current live rules
+  auditctl -l > "${BACKUP_DIR}/auditctl-list.${TIMESTAMP}.txt" 2>/dev/null || true
+  echo "현재 auditctl 규칙을 ${BACKUP_DIR}/auditctl-list.${TIMESTAMP}.txt 에 저장했습니다."
+}
+
+# write persistent rules file
+write_persistent_rules() {
+  echo "영구 규칙 파일 생성: $RULEFILE"
+  cat > "$RULEFILE" <<EOF
+# kubeipt audit rules created by setup-kubeipt-audit.sh
+# capture execve for iptables/nft and related binaries (64-bit)
+EOF
+
+  for exe in $EXES; do
+    # add 64bit rule
+    echo "-a always,exit -F arch=b64 -S execve -F exe=${exe} -k ${KEY}" >> "$RULEFILE"
+  done
+
+  cat >> "$RULEFILE" <<'EOF'
+
+# capture execve for iptables/nft and related binaries (32-bit)
+EOF
+
+  for exe in $EXES; do
+    echo "-a always,exit -F arch=b32 -S execve -F exe=${exe} -k ${KEY}" >> "$RULEFILE"
+  done
+
+  cat >> "$RULEFILE" <<'EOF'
+
+# end of kubeipt rules
+EOF
+
+  chmod 0640 "$RULEFILE"
+  echo "영구 규칙 파일이 작성되었습니다."
+}
+
+# load into kernel (augenrules preferred if available)
+load_rules() {
+  if command -v augenrules >/dev/null 2>&1; then
+    echo "augenrules --load 실행"
+    augenrules --load
+  else
+    echo "augenrules가 없습니다. auditctl로 규칙을 직접 적용합니다."
+    # first remove existing rules with same key to avoid dupes
+    # (we'll still rely on rulefile for persistence)
+    auditctl -D || true
+    for exe in $EXES; do
+      auditctl -a always,exit -F arch=b64 -S execve -F exe="$exe" -k "$KEY" || true
+      auditctl -a always,exit -F arch=b32 -S execve -F exe="$exe" -k "$KEY" || true
+    done
+  fi
+
+  # restart auditd to ensure rules are active
+  if systemctl is-active --quiet auditd; then
+    echo "auditd 재시작"
+    systemctl restart auditd || echo "auditd 재시작 실패 - 수동 확인 필요"
+  fi
+
+  echo "규칙 로드 완료. 최근 이벤트 확인하려면: sudo ausearch -k ${KEY} -i | tail -n 50"
+}
+
+summary_output() {
+  echo "==== 최근 kubeipt 이벤트 요약 (EXECVE/SYSCALL 중심) ===="
+  sudo ausearch -k "$KEY" -i 2>/dev/null | awk '
+    BEGIN {ORS=""; in_exec=0; in_sys=0}
+    /type=EXECVE/ {print "\n--- EXECVE ---\n"$0"\n"; next}
+    /type=SYSCALL/ {print "\n--- SYSCALL ---\n"$0"\n"; next}
+    /type=PROCTITLE/ {print "\n--- PROCTITLE ---\n"$0"\n"; next}
+    END {print "\n==== 끝 ====\n"}'
+  echo
+  echo "간단 pid→cgroup 매핑 helper:"
+  echo "    sudo ausearch -k ${KEY} -i | awk -F'pid=' '/SYSCALL/ {print \$2}' | awk '{print \$1}' | sort -u | xargs -r -n1 -I{} sh -c 'echo PID={}; sudo sed -n \"1,120p\" /proc/{}/cgroup 2>/dev/null || echo no-cgroup-for-{}'"
+}
+
+remove_rules() {
+  echo "주의: 규칙 제거를 진행합니다. 계속하려면 yes 입력"
+  read -r ans
+  if [ "$ans" != "yes" ]; then
+    echo "취소됨"
+    exit 0
+  fi
+
+  # remove persistent file
+  if [ -f "$RULEFILE" ]; then
+    mv "$RULEFILE" "${RULEFILE}.removed.$(date +%Y%m%dT%H%M%S)"
+    echo "영구 규칙 파일을 이동: ${RULEFILE}.removed.*"
+  fi
+
+  # flush current rules
+  auditctl -D || true
+  if command -v augenrules >/dev/null 2>&1; then
+    augenrules --load || true
+  fi
+  systemctl restart auditd || true
+  echo "규칙 제거 완료. auditctl -l 로 확인하세요."
+}
+
+show_help() {
+  cat <<EOF
+사용법:
+  sudo bash setup-kubeipt-audit.sh install   # 설치 및 로드 (기본)
+  sudo bash setup-kubeipt-audit.sh summary   # 최근 이벤트 요약 출력
+  sudo bash setup-kubeipt-audit.sh remove    # 설치된 규칙 제거(영구 파일 이동)
+  sudo bash setup-kubeipt-audit.sh help      # 도움말
+EOF
+}
+
+main() {
+  ensure_root
+  case "${1:-install}" in
+    install)
+      check_auditd
+      backup_rules
+      write_persistent_rules
+      load_rules
+      summary_output
+      ;;
+    summary)
+      summary_output
+      ;;
+    remove)
+      remove_rules
+      ;;
+    help)
+      show_help
+      ;;
+    *)
+      echo "알 수 없는 명령: $1"
+      show_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

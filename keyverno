@@ -1,0 +1,41 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-delete-argocd-managed
+spec:
+  validationFailureAction: enforce
+  background: false
+  rules:
+    - name: block-delete-for-argocd-managed
+      match:
+        any:
+          - resources:
+              kinds: ["*"]
+              operations: ["DELETE"]
+      # Argo가 관리하는 리소스만 대상:
+      #  - 기본 라벨: argocd.argoproj.io/instance
+      #  - 또는 트래킹 어노테이션: argocd.argoproj.io/tracking-id
+      preconditions:
+        any:
+          - key: "{{ request.oldObject.metadata.labels.\"argocd.argoproj.io/instance\" || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ request.oldObject.metadata.annotations.\"argocd.argoproj.io/tracking-id\" || '' }}"
+            operator: NotEquals
+            value: ""
+      # 예외: Argo CD 애플리케이션 컨트롤러만 삭제 가능
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                namespace: argocd
+                name: argocd-application-controller
+          - subjects:
+              - kind: Group
+                name: "system:masters"   # <- 완전히 막고 싶으면 이 줄과 아래 'cluster-admin' 예외는 지우세요
+          - subjects:
+              - kind: User
+                name: "cluster-admin"
+      validate:
+        message: "This resource is managed by Argo CD and cannot be deleted manually."
+        deny: {}

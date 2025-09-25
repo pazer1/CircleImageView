@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-with-crs
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  sources:
+    # [1] 동일 repo의 우산 Helm 차트 path
+    - repoURL: https://github.com/your-org/cluster-gitops.git
+      targetRevision: main
+      path: infra/cilium-helm
+      helm:
+        releaseName: cilium
+        valueFiles:
+          - $values/cilium/values.yaml
+        parameters:
+          - name: cilium.installNoConntrackIptablesRules
+            value: "true"
+          - name: cilium.installCRDs
+            value: "true"
+    # [2] 동일 repo values
+    - repoURL: https://github.com/your-org/cluster-gitops.git
+      targetRevision: main
+      path: cilium/values
+      ref: values
+    # [3] 동일 repo CR들
+    - repoURL: https://github.com/your-org/cluster-gitops.git
+      targetRevision: main
+      path: cilium-crs
+      directory:
+        recurse: true
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
